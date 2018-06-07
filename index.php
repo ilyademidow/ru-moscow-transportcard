@@ -40,7 +40,7 @@ $YOUR_EMAIL = '';
 
 $FILENAME = 'previous_bal.txt';
 $CARDNUM = '03317937536';
-$CARDTYPEID = '3ae427a1-0f17-4524-acb1-a3f50090a8f3'; // всегда одинаковый
+$CARDTYPEID = '3ae427a1-0f17-4524-acb1-a3f50090a8f3'; // Permanent ID for all cards
 
 $result = get_web_page("https://strelkacard.ru/api/cards/status/?cardnum={$CARDNUM}&cardtypeid={$CARDTYPEID}");
 if(!file_exists($FILENAME)) {
