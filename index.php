@@ -1,64 +1,86 @@
 <?php
 /**
- * Created by PhpStorm.
- * User: Ilya Demidov
- * Date: 18.03.2016
+ * @author: Ilya Demidov
+ * @source: https://github.com/ilyademidow/ru-moscow-transportcard
+ * @date: 18.03.2016
+ * @description: Simple Strelka Card Balance Checker. Monitors balance changes on Moscow transport card and sends email notifications
  **/
+
 /**
- * Get a web file (HTML, XHTML, XML, image, etc.) from a URL.  Return an
- * array containing the HTTP server response header fields and content.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * @param $url string
- **/
-function get_web_page( $url )
-{
-    $options = array(
-        CURLOPT_RETURNTRANSFER => true,     // return web page
-        CURLOPT_HEADER         => false,    // don't return headers
-        CURLOPT_FOLLOWLOCATION => true,     // follow redirects
-        CURLOPT_ENCODING       => "UTF-8",       // handle all encodings
-        CURLOPT_USERAGENT      => "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/49.0.2623.87 Safari/537.36", // who am i
-        CURLOPT_AUTOREFERER    => true,     // set referer on redirect
-        CURLOPT_CONNECTTIMEOUT => 120,      // timeout on connect
-        CURLOPT_TIMEOUT        => 120,      // timeout on response
-        CURLOPT_MAXREDIRS      => 10,       // stop after 10 redirects
-        CURLOPT_SSL_VERIFYPEER => false     // Disabled SSL Cert checks
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+// Configuration
+$config = [
+    'my_email' => '',  // Your email address
+    'my_card_number' => '03317937536', // Your Strelka card number
+    'balance_file' => 'balance.txt', // File to store previous balance
+    'card_type_id' => '3ae427a1-0f17-4524-acb1-a3f50090a8f3' // Default card type ID for all cards
+];
+
+// Get current balance from Strelka API
+function getCardBalance($cardNumber, $cardTypeId) {
+    $url = "https://strelkacard.ru/api/cards/status/?cardnum={$cardNumber}&cardtypeid={$cardTypeId}";
+    $response = file_get_contents($url);
+    $data = json_decode($response);
+    return $data->balance;
+}
+
+// Format amount to rubles
+function formatAmount($amount) {
+    return number_format($amount/100, 2) . ' руб.';
+}
+
+// Send notification email
+function sendNotification($to, $oldBalance, $newBalance) {
+    $difference = abs($oldBalance - $newBalance);
+    $isDebit = $oldBalance > $newBalance;
+    
+    $subject = $isDebit ? 'Списание со Стрелки' : 'Пополнение Стрелки';
+    $action = $isDebit ? 'Списано' : 'Пополнено';
+    
+    $message = sprintf(
+        '%s %s, текущий баланс %s', 
+        $action,
+        formatAmount($difference),
+        formatAmount($newBalance)
     );
-    $ch      = curl_init( $url );
-    curl_setopt_array( $ch, $options );
-    $content = curl_exec( $ch );
-    $err     = curl_errno( $ch );
-    $errmsg  = curl_error( $ch );
-    $header  = curl_getinfo( $ch );
-    curl_close( $ch );
-    $header['errno']   = $err;
-    $header['errmsg']  = $errmsg;
-    $header['content'] = $content;
-    return $header;
+    
+    mail($to, $subject, $message);
 }
-$YOUR_EMAIL = '';
 
-$FILENAME = 'previous_bal.txt';
-$CARDNUM = '03317937536';
-$CARDTYPEID = '3ae427a1-0f17-4524-acb1-a3f50090a8f3'; // Permanent ID for all cards
-
-$result = get_web_page("https://strelkacard.ru/api/cards/status/?cardnum={$CARDNUM}&cardtypeid={$CARDTYPEID}");
-if(!file_exists($FILENAME)) {
-    file_put_contents($FILENAME,'');
-}
-$oldBalance = file_get_contents($FILENAME);
-$card = json_decode($result['content']);
-$newBalance = $card->balance;
-$formatedNewBalance = ($newBalance/100)." руб.";
-$formatedTicketPrice = (abs($oldBalance-$newBalance)/100)." руб.";
-if($oldBalance != $newBalance) {
-    if ($oldBalance > $newBalance) {
-        $mailText = 'Списано ' . $formatedTicketPrice . ', баланс на карте ' . $formatedNewBalance;
-        $mailSubj = 'Списание';
-    } else {
-        $mailText = 'Пополнено ' . $formatedTicketPrice . ', баланс на карте ' . $formatedNewBalance;
-        $mailSubj = 'Поступление';
+// MAIN LOGIC
+try {
+    // Get current balance
+    $currentBalance = getCardBalance($config['my_card_number'], $config['card_type_id']);
+    
+    // Get previous balance from file
+    $previousBalance = file_exists($config['balance_file']) 
+        ? (int)file_get_contents($config['balance_file']) 
+        : $currentBalance;
+    
+    // Check if balance changed
+    if ($previousBalance !== $currentBalance) {
+        // Send notification if email is configured
+        if (!empty($config['my_email'])) {
+            sendNotification($config['my_email'], $previousBalance, $currentBalance);
+        }
+        
+        // Save new balance
+        file_put_contents($config['balance_file'], $currentBalance);
     }
-    mail($YOUR_EMAIL, $mailSubj, $mailText);
-    file_put_contents($FILENAME, $newBalance);
+    
+} catch (Exception $e) {
+    error_log("Error checking Strelka balance: " . $e->getMessage());
 }
